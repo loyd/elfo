@@ -8,3 +8,13 @@ item_count = 10
 
 [reporters]
 interval = "2s"
+
+# If you'd like to try elfo inspector visit https://elfo.rs/inspector
+[system.inspectors]
+ip = "127.0.0.1"
+port = 8223
+# Tokens should be long enough to be brute-force-proof.
+# Generate new random tokens by hand or with this shell command:
+# cat /dev/urandom | head -c32 | base64
+auth_tokens = []
+update_period = "100ms"

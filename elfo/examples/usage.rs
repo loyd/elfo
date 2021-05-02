@@ -245,6 +245,9 @@ fn topology() -> elfo::Topology {
     let aggregators = topology.local("aggregators");
     let reporters = topology.local("reporters");
     let loggers = topology.local("system.loggers");
+    // Check out https://elfo.rs/inspector for more details on a powerful
+    // elfo inspection toolbox
+    let inspectors = topology.local("system.inspectors");
     let configurers = topology.local("system.configurers").entrypoint();
 
     // Define links between actor groups.
@@ -258,6 +261,7 @@ fn topology() -> elfo::Topology {
     aggregators.mount(aggregator::new());
     reporters.mount(reporter::new());
     loggers.mount(logger);
+    inspectors.mount(elfo::inspector::new(topology.clone()));
 
     // Actors can use `topology` as an extended service locator.
     // Usually it should be used for utilities only.

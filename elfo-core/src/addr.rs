@@ -26,7 +26,7 @@ impl Addr {
         Addr(bits)
     }
 
-    pub(crate) fn into_bits(self) -> usize {
+    pub fn into_bits(self) -> usize {
         self.0
     }
 }

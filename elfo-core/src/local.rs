@@ -19,6 +19,10 @@ use serde::{
 pub struct Local<T>(T);
 
 impl<T> Local<T> {
+    pub fn new(val: T) -> Self {
+        Self(val)
+    }
+
     #[inline]
     pub fn into_inner(self) -> T {
         self.0

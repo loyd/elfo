@@ -1,0 +1,33 @@
+[package]
+name = "elfo-inspector"
+version = "0.1.0"
+description = "Inspecting elfo runtime through the web"
+authors = ["Petr Ermishkin <elfo@quasiyoke.me>", "Paul Loyd <pavelko95@gmail.com>"]
+edition = "2018"
+license = "MIT"
+
+[dependencies]
+elfo-core = { version = "0.1", path = "../elfo-core" }
+elfo-macros = { version = "0.1", path = "../elfo-macros" }
+
+# TODO: replace `tokio` with `agnostik`.
+tokio = "1"
+serde = { version = "1.0.120", features = ["derive", "rc"] }
+#derive_more = "0.99.11"
+tracing = "0.1.25"
+futures = "0.3.12"
+#static_assertions = "1.1.0"
+#serde-value = "0.7.0"
+warp = "0.3.1"
+tokio-stream = "0.1.5"
+humantime-serde = "1.0.1"
+smartstring = { version = "0.2.6", features = ["serde"] }
+serde_json = "1.0.64"
+derive_more = "0.99.13"
+anyhow = "1.0.40"
+validator = { version = "0.13.0", features = ["derive"] }
+
+[dev-dependencies]
+anyhow = "1.0.40"
+tokio = { version = "1", features = ["full"] }
+tracing-subscriber = "0.2.15"

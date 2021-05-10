@@ -10,7 +10,8 @@ use warp::{
 };
 
 use crate::{
-    protocol::{Config, GetTopology, Request, Token},
+    api::UpdateResult,
+    protocol::{Config, Request, RequestBody, Token},
     values::UpdateError,
 };
 
@@ -35,7 +36,7 @@ impl InspectorServer {
             .and(warp::get())
             .and(auth_token)
             .map(move |auth_token| {
-                warp::sse::reply(request(ctx.clone(), GetTopology::new(auth_token)))
+                warp::sse::reply(request(ctx.clone(), auth_token, RequestBody::GetTopology))
             });
         warp::serve(routes)
             .run((self.config.ip, self.config.port))
@@ -43,10 +44,12 @@ impl InspectorServer {
     }
 }
 
-fn request<R: Request>(
+fn request(
     ctx: Context,
-    (req, rx): (R, Receiver<Result<R::Update, UpdateError>>),
+    auth_token: Token,
+    body: RequestBody,
 ) -> impl Stream<Item = Result<sse::Event, UpdateError>> {
+    let (req, rx): (Request, Receiver<UpdateResult>) = Request::new(auth_token, body);
     let tx = req.tx().clone();
     if ctx.try_send_to(ctx.addr(), req).is_err() {
         if let Err(err) = Handle::current().block_on(tx.send(Err(UpdateError::TooManyRequests))) {

@@ -3,35 +3,35 @@
 
 use serde::Serialize;
 use smartstring::alias::String;
+use tokio::sync::mpsc::Sender;
 
-use elfo::topology::{ActorGroup, Connection};
+use elfo::{
+    topology::{ActorGroup, Connection},
+    Topology,
+};
 use elfo_core as elfo;
 use elfo_macros::message;
 
-type Addr = u64;
+use crate::values::{Addr, TopologyActorGroup, TopologyConnection, UpdateError};
+
 type Timestamp = f64;
-
-/// SSE GET: /api/v1/topology
+pub(crate) type UpdateResult = Result<Update, UpdateError>;
 
 #[message(part, elfo = elfo_core)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct TopologyUpdated {
-    pub groups: Vec<TopologyActorGroup>,
-    pub connections: Vec<TopologyConnection>,
+pub(crate) enum Update {
+    Heartbeat,
+    /// SSE GET: /api/v1/topology
+    TopologyUpdated {
+        groups: Vec<TopologyActorGroup>,
+        connections: Vec<TopologyConnection>,
+    },
 }
 
-#[message(part, elfo = elfo_core)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct TopologyActorGroup {
-    addr: Addr,
-    name: String,
-}
-
-#[message(part, elfo = elfo_core)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct TopologyConnection {
-    from: Addr,
-    to: Addr,
+#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum UpdateKey {
+    Heartbeat,
+    TopologyUpdated,
 }
 
 /// SSE GET: /api/v1/groups
@@ -92,20 +92,22 @@ enum MetricValue {
     },
 }
 
-impl From<ActorGroup> for TopologyActorGroup {
-    fn from(val: ActorGroup) -> Self {
-        Self {
-            addr: val.addr.into_bits() as _,
-            name: val.name.into(),
+impl Update {
+    pub(crate) fn key(&self) -> UpdateKey {
+        match self {
+            Self::Heartbeat => UpdateKey::Heartbeat,
+            Self::TopologyUpdated { .. } => UpdateKey::TopologyUpdated,
         }
     }
 }
 
-impl From<Connection> for TopologyConnection {
-    fn from(val: Connection) -> Self {
-        Self {
-            from: val.from.into_bits() as _,
-            to: val.to.into_bits() as _,
+impl From<Topology> for Update {
+    fn from(topology: Topology) -> Self {
+        let groups = topology.actor_groups().map(Into::into).collect();
+        let connections = topology.connections().map(Into::into).collect();
+        Self::TopologyUpdated {
+            connections,
+            groups,
         }
     }
 }

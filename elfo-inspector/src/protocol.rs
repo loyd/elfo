@@ -7,13 +7,13 @@ use serde::{Deserialize, Serialize};
 use smartstring::alias::String;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
-use elfo::{config::Secret, Local};
+use elfo::{config::Secret, Local, Topology};
 use elfo_core as elfo;
 use elfo_macros::message;
 
 use crate::{
-    api::TopologyUpdated,
-    values::{ip_addr, InspectorError, UpdateError},
+    api::{Update, UpdateResult},
+    values::{ip_addr, InspectorError, TopologyActorGroup, TopologyConnection, UpdateError},
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -22,32 +22,34 @@ pub(crate) struct Config {
     pub ip: IpAddr,
     pub port: u16,
     pub auth_tokens: Vec<Token>,
+    #[serde(with = "humantime_serde", default = "heartbeat_period_default")]
+    pub heartbeat_period: Duration,
     #[serde(with = "humantime_serde")]
     pub update_period: Duration,
     #[serde(default = "parallel_requests_max_default")]
     pub parallel_requests_max: usize,
 }
 
-pub trait Request: elfo::Message
-where
-    Self::Update: Debug + Serialize,
-{
-    type Update;
-
-    fn tx(&self) -> &Sender<Result<Self::Update, UpdateError>>;
+#[message(elfo = elfo_core)]
+pub(crate) struct Request {
+    token: Token,
+    tx: Local<Sender<UpdateResult>>,
+    pub(crate) body: RequestBody,
 }
 
 #[message(elfo = elfo_core)]
-pub(crate) struct GetTopology {
-    pub meta: RequestMeta<TopologyUpdated>,
+pub(crate) struct HeartbeatTick;
+
+#[message(elfo = elfo_core)]
+pub(crate) struct TopologyUpdated {
+    groups: Vec<TopologyActorGroup>,
+    connections: Vec<TopologyConnection>,
 }
 
-/// `U` — update type.
 #[message(part, elfo = elfo_core)]
-pub(crate) struct RequestMeta<U> {
-    id: RequestId,
-    token: Token,
-    tx: Local<Sender<Result<U, UpdateError>>>,
+#[derive(Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum RequestBody {
+    GetTopology,
 }
 
 #[message(part, elfo = elfo_core)]
@@ -58,39 +60,36 @@ pub(crate) struct Token(Secret<String>);
 
 const CHANNEL_SIZE: usize = 1024;
 
+fn heartbeat_period_default() -> Duration {
+    Duration::from_secs(2)
+}
+
 fn parallel_requests_max_default() -> usize {
     1024
 }
 
-impl GetTopology {
-    pub fn new(
-        token: Token,
-    ) -> (
-        Self,
-        Receiver<Result<<Self as Request>::Update, UpdateError>>,
-    ) {
+impl Request {
+    pub(crate) fn new(token: Token, body: RequestBody) -> (Self, Receiver<UpdateResult>) {
         let (tx, rx) = channel(CHANNEL_SIZE);
         (
             Self {
-                meta: RequestMeta::new(token, tx),
+                body,
+                token,
+                tx: Local::new(tx),
             },
             rx,
         )
     }
-}
 
-impl<U> RequestMeta<U>
-where
-    U: Serialize,
-{
-    fn new(token: Token, tx: Sender<Result<U, UpdateError>>) -> Self {
-        Self {
-            id: Default::default(),
-            token,
-            tx: Local::new(tx),
-        }
+    pub(crate) fn tx(&self) -> &Sender<UpdateResult> {
+        &*self.tx
     }
 }
+
+// impl PartialOrd for RequestBody {
+// fn cmp(&self, other: &Self) -> cmp::Cmp {
+// cmp::Equal
+//}
 
 impl Default for RequestId {
     fn default() -> Self {
@@ -104,25 +103,18 @@ impl FromStr for Token {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         const LENGTH_MIN: usize = 8;
         if s.len() < LENGTH_MIN {
-            Err(InspectorError::new("token is too short, should be at least 8 chars long").into())
+            Err(InspectorError::new("the string is too short to be a token").into())
         } else {
             Ok(Self(String::from(s).into()))
         }
     }
 }
 
-macro_rules! impl_request {
-    ($( $t:tt ( update = $update:ty ) ),+ $(,)?) => {
-        $(
-            impl Request for $t {
-                type Update = $update;
-
-                fn tx(&self) -> &Sender<Result<Self::Update, UpdateError>> {
-                    &*self.meta.tx
-                }
-            }
-        )*
-    }
-}
-
-impl_request!(GetTopology(update = TopologyUpdated));
+// impl From<Topology> for Update {
+// fn from(topology: Topology) -> Self {
+// let groups = topology.actor_groups().map(Into::into).collect();
+// let connections = topology.connections().map(Into::into).collect();
+// Self::TopologyUpdated {
+// groups,
+// connections,
+//}

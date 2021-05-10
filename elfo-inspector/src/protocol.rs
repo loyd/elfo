@@ -1,6 +1,6 @@
 //! Types to use for cross-task communication.
 
-use std::{net::IpAddr, str::FromStr, time::Duration};
+use std::{fmt::Debug, net::IpAddr, str::FromStr, time::Duration};
 
 use anyhow::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -16,9 +16,6 @@ use crate::{
     values::{ip_addr, InspectorError, UpdateError},
 };
 
-type Addr = u64;
-type Timestamp = f64;
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Config {
     #[serde(with = "ip_addr")]
@@ -33,7 +30,7 @@ pub(crate) struct Config {
 
 pub trait Request: elfo::Message
 where
-    Self::Update: Serialize,
+    Self::Update: Debug + Serialize,
 {
     type Update;
 
@@ -107,7 +104,7 @@ impl FromStr for Token {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         const LENGTH_MIN: usize = 8;
         if s.len() < LENGTH_MIN {
-            Err(InspectorError::new("wrong token").into())
+            Err(InspectorError::new("token is too short, should be at least 8 chars long").into())
         } else {
             Ok(Self(String::from(s).into()))
         }

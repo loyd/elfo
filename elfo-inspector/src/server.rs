@@ -1,8 +1,9 @@
-use elfo::{Context, Topology};
+use elfo::Context;
 use elfo_core as elfo;
 use futures::{Stream, StreamExt};
-use tokio::sync::mpsc::Receiver;
+use tokio::{runtime::Handle, sync::mpsc::Receiver};
 use tokio_stream::wrappers::ReceiverStream;
+use tracing::{error, warn};
 use warp::{
     sse::{self},
     Filter,
@@ -17,15 +18,13 @@ use crate::{
 pub(crate) struct InspectorServer {
     config: Config,
     ctx: Context,
-    topology: Topology,
 }
 
 impl InspectorServer {
-    pub(crate) fn new(config: &Config, ctx: Context, topology: Topology) -> Self {
+    pub(crate) fn new(config: &Config, ctx: Context) -> Self {
         Self {
             config: config.clone(),
             ctx,
-            topology,
         }
     }
 
@@ -50,17 +49,22 @@ fn request<R: Request>(
 ) -> impl Stream<Item = Result<sse::Event, UpdateError>> {
     let tx = req.tx().clone();
     if ctx.try_send_to(ctx.addr(), req).is_err() {
-        tx.send(Err(UpdateError::TooManyRequests));
+        if let Err(err) = Handle::current().block_on(tx.send(Err(UpdateError::TooManyRequests))) {
+            error!(?err, "can't send error update");
+        }
     }
 
-    let event_stream =
-        ReceiverStream::new(rx).map(move |update_result| -> Result<sse::Event, UpdateError> {
-            update_result.and_then(|update| {
+    ReceiverStream::new(rx).map(move |update_result| -> Result<sse::Event, UpdateError> {
+        update_result
+            .and_then(|update| {
                 sse::Event::default()
                     .event("update")
                     .json_data(update)
                     .map_err(UpdateError::from)
             })
-        });
-    Box::new(event_stream)
+            .map_err(|err| {
+                warn!(?err, "can't handle connection");
+                err
+            })
+    })
 }

@@ -18,6 +18,7 @@ use server::InspectorServer;
 struct Inspector {
     ctx: Context<Config>,
     server: InspectorServer,
+    topology: Topology,
 }
 
 pub fn new(topology: Topology) -> Schema {
@@ -31,8 +32,12 @@ pub fn new(topology: Topology) -> Schema {
 
 impl Inspector {
     fn new(ctx: Context<Config>, topology: Topology) -> Self {
-        let server = InspectorServer::new(ctx.config(), ctx.pruned(), topology);
-        Self { ctx, server }
+        let server = InspectorServer::new(ctx.config(), ctx.pruned());
+        Self {
+            ctx,
+            server,
+            topology,
+        }
     }
 
     async fn exec(mut self) {
@@ -42,13 +47,11 @@ impl Inspector {
                 Some(envelope) = self.ctx.recv() => {
                     msg!(match envelope {
                         req @ GetTopology => {
-                            // let groups = self.topology.actor_groups().map(Into::into).collect();
-                            // let connections = self.topology.connections().map(Into::into).collect();
+                            let groups = self.topology.actor_groups().map(Into::into).collect();
+                            let connections = self.topology.connections().map(Into::into).collect();
                             if let Err(err) = req.tx().try_send(Ok(TopologyUpdated {
-                                // groups,
-                                // connections,
-                                groups: Default::default(),
-                                connections: Default::default(),
+                                groups,
+                                connections,
                             })) {
                                 error!(?err, "err");
                             }

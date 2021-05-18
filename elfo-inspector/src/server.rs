@@ -1,3 +1,5 @@
+use std::convert::AsRef;
+
 use elfo::Context;
 use elfo_core as elfo;
 use futures::{Stream, StreamExt};
@@ -10,7 +12,7 @@ use warp::{
 };
 
 use crate::{
-    api::UpdateResult,
+    api::{Update, UpdateResult},
     protocol::{Config, Request, RequestBody, Token},
     values::UpdateError,
 };
@@ -60,10 +62,12 @@ fn request(
     ReceiverStream::new(rx).map(move |update_result| -> Result<sse::Event, UpdateError> {
         update_result
             .and_then(|update| {
-                sse::Event::default()
-                    .event("update")
-                    .json_data(update)
-                    .map_err(UpdateError::from)
+                let event = sse::Event::default().event(update.as_ref());
+                if matches!(update, Update::Heartbeat) {
+                    Ok(event)
+                } else {
+                    event.json_data(update).map_err(UpdateError::from)
+                }
             })
             .map_err(|err| {
                 warn!(?err, "can't handle connection");

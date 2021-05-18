@@ -30,6 +30,7 @@ typemap = "0.3.3"
 fxhash = "0.2.1"
 priority-queue = "1.1.1"
 slotmap = "1.0.3"
+strum = { version = "0.20.0", features = ["derive"] }
 
 [dev-dependencies]
 anyhow = "1.0.40"

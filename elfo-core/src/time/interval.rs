@@ -18,7 +18,7 @@ use crate::{
 /// Notifies you about time intervals via [messages][Message].
 /// `Interval` is stopped by default.
 ///
-/// [Message]: ./struct.Message.html
+/// [Message]: ../struct.Message.html
 pub struct Interval<F> {
     message_factory: F,
     state: Mutex<State>,

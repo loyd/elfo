@@ -3,6 +3,7 @@
 
 use serde::Serialize;
 use smartstring::alias::String;
+use strum::AsRefStr;
 use tokio::sync::mpsc::Sender;
 
 use elfo::{
@@ -19,6 +20,7 @@ pub(crate) type UpdateResult = Result<Update, UpdateError>;
 
 #[message(part, elfo = elfo_core)]
 #[serde(rename_all = "camelCase")]
+#[derive(AsRefStr)]
 pub(crate) enum Update {
     Heartbeat,
     /// SSE GET: /api/v1/topology

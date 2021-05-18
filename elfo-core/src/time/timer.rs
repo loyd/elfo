@@ -14,69 +14,52 @@ use crate::{
     message::Message,
 };
 
-/// Notifies you about time intervals via [messages][Message].
-/// `Interval` is stopped by default.
+/// Notifies you once about the end of time interval via [messages][Message].
+/// `Timer` is stopped by default.
+/// The timer can always be rescheduled via [`reset(deadline)`][reset] call.
 ///
-/// [Message]: ./struct.Message.html
-pub struct Interval<F> {
+/// [Message]: ../struct.Message.html
+/// [reset]: #method.reset
+pub struct Timer<F> {
     message_factory: F,
     state: Mutex<State>,
 }
 
 struct State {
+    is_waiting: bool,
     sleep: Pin<Box<Sleep>>,
-    start_at: Option<Instant>,
-    period: Duration,
 }
 
-impl<F> Interval<F> {
+enum DeadlineState {
+    Waiting,
+    Waited,
+}
+
+impl<F> Timer<F> {
     pub fn new(f: F) -> Self {
         Self {
             message_factory: f,
             state: Mutex::new(State {
+                is_waiting: false,
                 sleep: Box::pin(time::sleep_until(Instant::now())),
-                start_at: None,
-                period: Duration::new(0, 0),
             }),
         }
     }
 
-    pub fn after(self, after: Duration) -> Self {
-        let when = Instant::now() + after;
+    pub fn reset(&self, deadline: Instant) {
         let mut state = self.state.lock();
-        state.start_at = Some(when);
-        state.sleep.as_mut().reset(when);
-        drop(state);
-        self
+        state.is_waiting = true;
+        state.sleep.as_mut().reset(deadline);
     }
 
-    pub fn set_period(&self, new_period: Duration) {
-        assert!(new_period > Duration::new(0, 0));
-
+    pub fn sleep(&self, duration: Duration) {
         let mut state = self.state.lock();
-
-        if new_period == state.period {
-            return;
-        }
-
-        let old_period = state.period;
-        state.period = new_period;
-
-        if state.start_at.is_none() {
-            let new_deadline = state.sleep.deadline() - old_period + new_period;
-            state.sleep.as_mut().reset(new_deadline);
-        }
-    }
-
-    pub fn reset(&self) {
-        let mut state = self.state.lock();
-        let new_deadline = Instant::now() + state.period;
-        state.start_at = None;
-        state.sleep.as_mut().reset(new_deadline);
+        state.is_waiting = true;
+        state.sleep.as_mut().reset(Instant::now() + duration);
     }
 }
 
-impl<M, F> Source for Interval<F>
+impl<M, F> Source for Timer<F>
 where
     F: Fn() -> M,
     M: Message,
@@ -86,25 +69,23 @@ where
 
         if state.sleep.as_mut().poll(cx).is_ready() {
             // It hasn't been configured, so just ignore it.
-            if state.period == Duration::new(0, 0) && state.start_at.is_none() {
-                return Poll::Pending;
+            if state.is_waiting {
+                state.is_waiting = false;
+
+                // Emit a message.
+                let message = (self.message_factory)();
+                let kind = MessageKind::Regular { sender: Addr::NULL };
+                let envelope = Envelope::new(message, kind).upcast();
+                return Poll::Ready(Some(envelope));
             }
 
-            state.start_at = None;
-
             // Now reset the underlying timer.
-            let period = state.period;
-            let sleep = state.sleep.as_mut();
-            let new_deadline = sleep.deadline() + period;
-            sleep.reset(new_deadline);
-
-            // Emit a message.
-            let message = (self.message_factory)();
-            let kind = MessageKind::Regular { sender: Addr::NULL };
-            let envelope = Envelope::new(message, kind).upcast();
-            return Poll::Ready(Some(envelope));
+            // let period = state.period;
+            // let sleep = state.sleep.as_mut();
+            // let new_deadline = sleep.deadline() + period;
+            // sleep.reset(new_deadline);
         }
 
-        Poll::Pending
+        Poll::Pending // The timer can always be rescheduled
     }
 }

@@ -19,15 +19,15 @@ use crate::{
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Config {
     #[serde(with = "ip_addr")]
-    pub ip: IpAddr,
-    pub port: u16,
-    pub auth_tokens: Vec<Token>,
+    pub(crate) ip: IpAddr,
+    pub(crate) port: u16,
+    pub(crate) auth_tokens: Vec<Token>,
     #[serde(with = "humantime_serde", default = "heartbeat_period_default")]
-    pub heartbeat_period: Duration,
+    pub(crate) heartbeat_period: Duration,
     #[serde(with = "humantime_serde")]
-    pub update_period: Duration,
+    pub(crate) update_period: Duration,
     #[serde(default = "parallel_requests_max_default")]
-    pub parallel_requests_max: usize,
+    pub(crate) parallel_requests_max: usize,
 }
 
 #[message(elfo = elfo_core)]

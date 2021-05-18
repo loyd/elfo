@@ -12,7 +12,7 @@ use slotmap::{new_key_type, SlotMap};
 use tokio::sync::mpsc::Sender;
 use tracing::error;
 
-use elfo::{time::Interval, ActorGroup, Context, Schema, Topology};
+use elfo::{time::Timer, ActorGroup, Context, Schema, Topology};
 use elfo_core as elfo;
 use elfo_macros::msg_raw as msg;
 
@@ -61,11 +61,8 @@ impl Inspector {
     async fn exec(mut self, ctx: Context<Config>) {
         let server = InspectorServer::new(ctx.config(), ctx.pruned());
         let mut server_execution = tokio::spawn(server.exec());
-        let &Config {
-            heartbeat_period, ..
-        } = ctx.config();
-        let heartbeat_interval = Interval::new(|| HeartbeatTick);
-        let mut ctx = ctx.with(&heartbeat_interval);
+        let heartbeat_timer = Timer::new(|| HeartbeatTick);
+        let mut ctx = ctx.with(&heartbeat_timer);
         loop {
             tokio::select! {
                 Some(envelope) = ctx.recv() => {
@@ -75,7 +72,7 @@ impl Inspector {
                                 RequestBody::GetTopology => {
                                     let update: Update = self.topology.clone().into();
                                     let update_key = update.key();
-                                    match self.subscribe(update_key, req.tx().clone(), &heartbeat_interval) {
+                                    match self.subscribe(update_key, req.tx().clone(), &heartbeat_timer) {
                                         Ok(listener_key) => {
                                             if let Err(err) = self.send(listener_key, update) {
                                                 error!(?err, "can't send the snapshot to the listener");
@@ -89,12 +86,14 @@ impl Inspector {
                             }
                         },
                         HeartbeatTick => {
-                            if let Err(err) = self.heartbeat_tick(&heartbeat_interval) {
+                            if let Err(err) = self.heartbeat_tick(&heartbeat_timer) {
                                 error!("can't handle heartbeat tick");
                             }
                         },
                         TopologyUpdated => {
-                            self.send_to_channel(self.topology.clone().into());
+                            if let Err(err) = self.send_to_channel(self.topology.clone().into()) {
+                                error!(?err, "can't send to the channel");
+                            }
                         },
                         _ => {},
                     });
@@ -124,8 +123,13 @@ impl Inspector {
         &mut self,
         update_key: UpdateKey,
         tx: Sender<UpdateResult>,
-        interval: &Interval<F>,
+        timer: &Timer<F>,
     ) -> Result<ListenerKey> {
+        if self.listeners.is_empty() {
+            timer.sleep(self.heartbeat_period);
+        }
+        let listener = Listener::new(tx, self.heartbeat_period, self.heartbeat_indexes.next());
+        let listener_key = self.listeners.insert(listener);
         let mut channel = if let Some(channel) = self.channels.get_mut(&update_key) {
             channel
         } else {
@@ -133,12 +137,7 @@ impl Inspector {
             self.channels.insert(update_key, channel);
             self.channels.get_mut(&update_key).unwrap()
         };
-        let listener = Listener::new(tx, self.heartbeat_period, self.heartbeat_indexes.next());
-        let listener_key = self.listeners.insert(listener);
         channel.subscribe(listener_key);
-        if self.listeners.is_empty() {
-            interval.set_period(self.heartbeat_period);
-        }
         self.schedule_heartbeat(listener_key)?;
         Ok(listener_key)
     }
@@ -153,10 +152,11 @@ impl Inspector {
             self.listeners.remove(listener_key);
             return Err(InspectorError::new("listener doesn't receive").into());
         }
+        self.heartbeats.remove(&listener.heartbeat_uid);
         self.postpone_heartbeat(listener_key)
     }
 
-    fn heartbeat_tick<F: Fn() -> HeartbeatTick>(&mut self) -> Result<()> {
+    fn heartbeat_tick<F: Fn() -> HeartbeatTick>(&mut self, timer: &Timer<F>) -> Result<()> {
         let now = Instant::now();
         while let Some((&uid, &listener_key)) = self.heartbeats.iter().next() {
             let listener = if let Some(listener) = self.listeners.get(listener_key) {
@@ -166,11 +166,14 @@ impl Inspector {
                 continue;
             };
             if listener.heartbeat_at > now {
+                timer.reset(listener.heartbeat_at.into());
                 break;
             }
             self.heartbeats.remove(&uid);
             if let Err(err) = self.send(listener_key, Update::Heartbeat) {
-                error!(?err, "can't send heartbeat")
+                error!(?err, ?listener_key, "can't send heartbeat")
+            } else if let Err(err) = self.postpone_heartbeat(listener_key) {
+                error!(?err, ?listener_key, "can't postpone heartbeat")
             }
         }
         Ok(())
@@ -180,9 +183,8 @@ impl Inspector {
         let listener = if let Some(listener) = self.listeners.get_mut(listener_key) {
             listener
         } else {
-            return Err(InspectorError::new("there's no such listener").into());
+            return Err(InspectorError::new("there's no such listener to postpone").into());
         };
-        self.heartbeats.remove(&listener.heartbeat_uid);
         listener.heartbeat_at = Instant::now() + self.heartbeat_period;
         listener.heartbeat_uid = self.heartbeat_indexes.next();
         self.schedule_heartbeat(listener_key)
@@ -192,7 +194,7 @@ impl Inspector {
         let listener = if let Some(listener) = self.listeners.get(listener_key) {
             listener
         } else {
-            return Err(InspectorError::new("there's no such listener").into());
+            return Err(InspectorError::new("there's no such listener to schedule").into());
         };
         self.heartbeats.insert(listener.heartbeat_uid, listener_key);
         Ok(())

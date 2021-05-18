@@ -8,7 +8,7 @@ pub(crate) struct InspectorError {
 }
 
 #[derive(Debug, Display, Error)]
-pub enum UpdateError {
+pub(crate) enum UpdateError {
     /// HTTP 429.
     TooManyRequests,
     Other {
@@ -17,7 +17,7 @@ pub enum UpdateError {
 }
 
 impl InspectorError {
-    pub fn new(s: &str) -> Self {
+    pub(crate) fn new(s: &str) -> Self {
         Self { message: s.into() }
     }
 }

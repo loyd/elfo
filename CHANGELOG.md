@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - configurer: reload configs on SIGHUP.
 - logger: get spans back in order to enable filtering by `RUST_LOG`.
 - logger: reopen a log file on SIGHUP and when the config is changed.
+- dumper: the dumping subsystem and an actor group to save messages on disk.
 - `Message::NAME` and `Message::PROTOCOL`.
 - `time::Timestamp`.
 
@@ -58,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.11] - 2021-05-18
 ### Added
-- logger: a actor group to log everything.
+- logger: an actor group to log everything.
 - Trace ID generation and propagation.
 - `stream::Stream`: a wrapper to attach streams to a actor context.
 
